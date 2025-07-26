@@ -4,6 +4,8 @@ import streamlit as st
 import pandas as pd
 import joblib
 import os
+from sklearn.preprocessing import StandardScaler
+import numpy as np
 
 # 1. Tytuł
 st.title("💡 Fraud Classification App")
@@ -61,8 +63,75 @@ if upload_provider and upload_bene and upload_inpatient and upload_outpatient:
     train_claims = pd.concat([df_inpatient, df_outpatient], axis=0)
     train_claims_with_beneficiary = train_claims.merge(df_bene, on='BeneID', how='left')
     df= train_claims_with_beneficiary.merge(df_provider, on='Provider', how='left')
+
+    st.write("🧾 Dane wejściowe przed obróbką:")
+    st.dataframe(df.head())
     
-    st.write("🧾 Dane wejściowe:")
+    date_cols = ['ClaimStartDt', 'ClaimEndDt', 'AdmissionDt', 'DischargeDt', 'DOB', 'DOD']
+
+    for col in date_cols:
+        df[col] = pd.to_datetime(df[col], errors='coerce')
+    
+    df['DOB'] = pd.to_datetime(df['DOB'])
+    df['DOD'] = pd.to_datetime(df['DOD'])
+    
+    if df['DOD'].isna().any():
+        df['Age'] = pd.to_datetime('today').year - df['DOB'].dt.year
+    else:
+        df['Age'] = df['DOD'].dt.year - df['DOB'].dt.year
+    df.drop(columns=['DOB'], inplace=True)
+    df['isAlive'] = df['DOD'].isna().astype(int)
+
+    cols = [
+    'ClmDiagnosisCode_1', 'ClmDiagnosisCode_2', 'ClmDiagnosisCode_3',
+    'ClmDiagnosisCode_4', 'ClmDiagnosisCode_5', 'ClmDiagnosisCode_6',
+    'ClmDiagnosisCode_7', 'ClmDiagnosisCode_8', 'ClmDiagnosisCode_9',
+    'ClmDiagnosisCode_10'
+    ]
+
+    # Tworzymy nową kolumnę 'DiagnosisCount' zliczającą ile jest wartości nie-NaN w tych kolumnach
+    df['DiagnosisCount'] = df[cols].notnull().sum(axis=1)
+
+    cols = [
+    'ClmProcedureCode_1', 'ClmProcedureCode_2', 'ClmProcedureCode_3',
+    'ClmProcedureCode_4', 'ClmProcedureCode_5', 'ClmProcedureCode_6',
+    ]
+
+    # Tworzymy nową kolumnę 'ProceduresCount' zliczającą ile jest wartości nie-NaN w tych kolumnach
+    df['ProceduresCount'] = df[cols].notnull().sum(axis=1)
+
+    df["RenalDiseaseIndicator2"] = df["RenalDiseaseIndicator"].map({
+    "Y": 1,
+    "N": 0,
+    "0": np.nan
+    })
+
+    df['WasOperated'] = df['OperatingPhysician'].notna().astype(int)
+
+    kolumny = [
+        'InscClaimAmtReimbursed',
+        'NoOfMonths_PartACov',
+        'NoOfMonths_PartBCov',
+        'IPAnnualReimbursementAmt',
+        'IPAnnualDeductibleAmt',
+        'OPAnnualReimbursementAmt',
+        'OPAnnualDeductibleAmt',
+        'Age',
+        'DiagnosisCount',
+        'ProceduresCount',
+        'WasOperated',
+        'Gender',
+        'Race',
+        'RenalDiseaseIndicator2'
+    ]
+
+    df = df[kolumny]
+
+    ##### skalowanie
+    scaler = StandardScaler()
+    df_scaled = scaler.fit_transform(df)
+
+    st.write("🧾 Dane wejściowe po obróbce:")
     st.dataframe(df.head())
 
     # Jeśli są kolumny niezgodne z modelem — alert
